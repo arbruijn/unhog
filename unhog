@@ -1,0 +1,94 @@
+#!/usr/bin/python3
+import sys
+import struct
+import fnmatch
+import re
+import getopt
+import os
+
+def hogstd(f):
+	sig = f.read(3)
+	if sig != b'DHF' and sig != b'D2X':
+		raise Exception('invalid hog header')
+	while True:
+		bname = f.read(13)
+		if not bname:
+			break
+		size = struct.unpack('<i', f.read(4))[0]
+		if size < 0: # D2X
+			bname = f.read(256)
+			size = -size
+		bname = bname[:bname.index(b'\x00')]
+		cur = f.tell()
+		yield (bname, size, cur)
+		f.seek(cur + size)
+
+def hogpsx(f):
+	hdr = f.read(11)
+	(sig, count, dataofs) = struct.unpack('<3sii', hdr)
+	if sig != b'DHF':
+		raise Exception('invalid hog header')
+	items = []
+	for i in range(count):
+		entry = f.read(21)
+		if not entry:
+			break
+		(bname, size, ofs) = struct.unpack('<13sii', entry)
+		bname = bname[:bname.index(b'\x00')]
+		items.append((bname, size, ofs + dataofs))
+	yield from items
+
+def hog3(f):
+	hdr = f.read(68)
+	(sig, count, dataofs) = struct.unpack('<4sii', hdr[0:12])
+	if sig != b'HOG2':
+		raise Exception('invalid hog header')
+	ofs = 0
+	items = []
+	for i in range(count):
+		entry = f.read(48)
+		if not entry:
+			break
+		(bname, unk, size, time) = struct.unpack('<36siii', entry)
+		bname = bname[:bname.index(b'\x00')]
+		items.append((bname, size, ofs + dataofs))
+		ofs += size
+	yield from items
+
+def unhog(fn, pat, opts):
+	rpat = None
+	if pat:
+		rpat = re.compile(fnmatch.translate(pat), re.IGNORECASE)
+	dir = opts.get('d')
+	list = opts.get('l')
+	psx = opts.get('x')
+	d3 = opts.get('3')
+	with open(fn, "rb") as f:
+		for (bname, size, ofs) in hog3(f) if d3 else hogpsx(f) if psx else hogstd(f):
+			name = bname.decode('cp437').lower()
+			if rpat and not rpat.match(name):
+				#f.seek(size, 1)
+				continue
+			if list:
+				print(name)
+				#f.seek(size, 1)
+				continue
+			f.seek(ofs, 0)
+			outname = os.path.join(dir, name) if dir else name
+			print(outname)
+			with open(outname, "wb") as fo:
+				fo.write(f.read(size))
+
+if __name__ == '__main__':
+	try:
+		opts, args = getopt.getopt(sys.argv[1:], "ld:x3", ["list", "directory=", "psx", "d3"])
+	except getopt.GetoptError as err:
+		print(err)
+		sys.exit(2)
+	if not args:
+		print("unhog [-l] [-doutdir] file.hog [spec]")
+		sys.exit(2)
+	d = {}
+	for o, a in opts:
+	  d[o[1]] = a if a else True
+	unhog(args[0], args[1] if len(args) >= 2 else None, d)
