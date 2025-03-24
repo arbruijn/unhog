@@ -18,7 +18,9 @@ def hogstd(f):
 		if size < 0: # D2X
 			bname = f.read(256)
 			size = -size
-		bname = bname[:bname.index(b'\x00')]
+		i = bname.find(b'\x00')
+		if i != -1:
+			bname = bname[:i]
 		cur = f.tell()
 		yield (bname, size, cur)
 		f.seek(cur + size)
@@ -55,14 +57,22 @@ def hog3(f):
 		ofs += size
 	yield from items
 
-def unhog(fn, pat, opts):
+def rotl(x):
+	return ((x & 0x7f) << 1) | ((x & 0x80) >> 7);
+def rotr(x):
+	return ((x & 0xfe) >> 1) | ((x & 1) << 7);
+
+def unhog(fn, pats, opts):
 	rpat = None
-	if pat:
-		rpat = re.compile(fnmatch.translate(pat), re.IGNORECASE)
+	if pats:
+		rpat = re.compile('|'.join([fnmatch.translate(pat) for pat in pats]), re.IGNORECASE)
 	dir = opts.get('d')
 	list = opts.get('l')
 	psx = opts.get('x')
 	d3 = opts.get('3')
+	quiet = opts.get('q')
+	toout = opts.get('p')
+	txb = opts.get('b')
 	with open(fn, "rb") as f:
 		for (bname, size, ofs) in hog3(f) if d3 else hogpsx(f) if psx else hogstd(f):
 			name = bname.decode('cp437').lower()
@@ -75,13 +85,20 @@ def unhog(fn, pat, opts):
 				continue
 			f.seek(ofs, 0)
 			outname = os.path.join(dir, name) if dir else name
-			print(outname)
-			with open(outname, "wb") as fo:
-				fo.write(f.read(size))
+			if not quiet and not toout:
+				print(outname)
+			data = f.read(size)
+			if txb:
+				data = bytes(map(lambda x: 10 if x == 10 else rotl(rotl(x) ^ 0xd3), data))
+			if toout:
+				sys.stdout.buffer.write(data)
+			else:
+				with open(outname, "wb") as fo:
+					fo.write(data)
 
 if __name__ == '__main__':
 	try:
-		opts, args = getopt.getopt(sys.argv[1:], "ld:x3", ["list", "directory=", "psx", "d3"])
+		opts, args = getopt.getopt(sys.argv[1:], "ld:x3qpb", ["list", "directory=", "psx", "d3", "quiet", "stdout", "bin"])
 	except getopt.GetoptError as err:
 		print(err)
 		sys.exit(2)
@@ -91,4 +108,4 @@ if __name__ == '__main__':
 	d = {}
 	for o, a in opts:
 	  d[o[1]] = a if a else True
-	unhog(args[0], args[1] if len(args) >= 2 else None, d)
+	unhog(args[0], args[1:], d)
