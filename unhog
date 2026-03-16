@@ -103,7 +103,9 @@ if __name__ == '__main__':
 		print(err)
 		sys.exit(2)
 	if not args:
-		print("unhog [-l] [-doutdir] file.hog [spec]")
+		print("unhog [-lx3qpb] [-doutdir] file.hog [spec]")
+		print()
+		print("options: l list, x psx, 3 d3, q quiet, p print, b decode txb")
 		sys.exit(2)
 	d = {}
 	for o, a in opts:
